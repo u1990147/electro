@@ -89,13 +89,14 @@ void setup(){
   delayMicroseconds(2);  //Seleccionem el xip 𝐶𝑆=0 
   writeRegister(0x01, 0x01); // 00000001 Config1: 250 SPS 
   writeRegister(0x02, 0xE0); // 11100000 Config2: Enable RLD, test signal off 
-  writeRegister(0x03, 0x10); // Lead-Off control FALTA
+  writeRegister(0x03, 0x19); // 00011000 Lead-Off control 
   writeRegister(0x04, 0x50); // 01010000 Channel 1: Enabled, GAIN = 8, Normal Electrode
   writeRegister(0x05, 0x00); // 00000000 Channel 2: Enabled, Gain=6, Normal Electrode 
-
-  writeRegister(0x06, 0x00); // 0011RLD_SENS   
-  writeRegister(0x07, 0x00); // LOFF_SENS 
-  writeRegister(0x09, 0x02); // 00000010 RESP1 Resp. control register 1 
+  writeRegister(0x06, 0x3F); // 0011111 RLD_SENS escollim els dos canals 
+  writeRegister(0x07, 0x00); // LOFF_SENS FALTA
+  //writeRegister 0x08
+  writeRegister(0x09, 0xC2); // 11000010 RESP1 Resp. control register 1 
+  
   writeRegister(0x0A, 0x03); // 00000011 RESP2 Resp. control register 1 
   writeRegister(0x0B, 0x00); // 00000000 GPIOs 1 
   delayMicroseconds(2); 
