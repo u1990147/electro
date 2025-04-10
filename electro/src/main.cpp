@@ -63,20 +63,38 @@ void setup(){
 
   BLEService *pHRService = pServer->createService(HR_SERVICE_UUID);
   BLEService *pRESPService = pServer->createService(RESP_SERVICE_UUID);
-
-  pHRCharacteristic = pService->createCharacteristic(
-                      HRmesura_CHARACTERISTIC_UUID,
+  pHRcpCharacteristic = pHRService->createCharacteristic( //HR control point demana que reinci els RR-intervals acumulats
                       HRcp_CHARACTERISTIC_UUID,
+                      BLECharacteristic::PROPERTY_WRITE
+                    );
+  pHRcpCharacteristic->addDescriptor(new BLE2902());
+
+  pHRmaxCharacteristic = pHRService->createCharacteristic(
                       HRmax_CHARACTERISTIC_UUID,
                       BLECharacteristic::PROPERTY_READ |
-                      BLECharacteristic::PROPERTY_WRITE|
                       BLECharacteristic::PROPERTY_NOTIFY
                     );
-  pCharacteristic->addDescriptor(new BLE2902());
-  pService->start();
+  pHRmaxCharacteristic->addDescriptor(new BLE2902());
+
+  pHRmesuraCharacteristic = pHRService->createCharacteristic(
+                      HRmesura_CHARACTERISTIC_UUID,
+                      BLECharacteristic::PROPERTY_READ |
+                      BLECharacteristic::PROPERTY_NOTIFY
+                    );
+  pHRmesuraCharacteristic->addDescriptor(new BLE2902());
+  pHRService->start();
   
+  pRESPCharacteristic = pRESPService->createCharacteristic(
+                      RESP_CHARACTERISTIC_UUID,
+                      BLECharacteristic::PROPERTY_READ |
+                      BLECharacteristic::PROPERTY_NOTIFY
+  );
+  RESPCharacteristic->addDescriptor(new BLE2902());
+  pRESPService->start();
+
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
+  pAdvertising->addServiceUUID(HR_SERVICE_UUID);
+  pAdvertising->addServiceUUID(RESP_SERVICE_UUID);
   pAdvertising->setScanResponse(true);
   BLEDevice::startAdvertising();
   Serial.println("BLE iniciat i en publicació");
