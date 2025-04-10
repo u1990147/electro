@@ -15,8 +15,13 @@
 
 
 using namespace std;
-#define SERVICE_UUID        "0000180D-0000-1000-8000-00805F9B34FB"
-#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+#define HR_SERVICE_UUID        "00000180D-0000-1000-8000-00805F9B34FB"
+#define HRcp_CHARACTERISTIC_UUID "000002A39-0000-1000-8000-00805F9B34FB"
+#define HRmax_CHARACTERISTIC_UUID "000002A37-0000-1000-8000-00805F9B34FB"
+#define HRmesura_CHARACTERISTIC_UUID "000002A8D-0000-1000-8000-00805F9B34FB"
+
+#define RESP_SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define RESP_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
 
 //Pins SPI
@@ -32,7 +37,8 @@ ads1292r ADS1292R;
 
 //Crear el servidor BLE i les característiques
 BLEServer* pServer = NULL;
-BLECharacteristic* pCharacteristic = NULL;
+BLECharacteristic* pHRCharacteristic = NULL;
+BLECharacteristic* pRESPCharacteristic = NULL;
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
 
@@ -54,10 +60,14 @@ void setup(){
   BLEDevice::init("Marc_Lola");
   pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
-  BLEService *pService = pServer->createService(SERVICE_UUID);
-  
-  pCharacteristic = pService->createCharacteristic(
-                      CHARACTERISTIC_UUID,
+
+  BLEService *pHRService = pServer->createService(HR_SERVICE_UUID);
+  BLEService *pRESPService = pServer->createService(RESP_SERVICE_UUID);
+
+  pHRCharacteristic = pService->createCharacteristic(
+                      HRmesura_CHARACTERISTIC_UUID,
+                      HRcp_CHARACTERISTIC_UUID,
+                      HRmax_CHARACTERISTIC_UUID,
                       BLECharacteristic::PROPERTY_READ |
                       BLECharacteristic::PROPERTY_WRITE|
                       BLECharacteristic::PROPERTY_NOTIFY
