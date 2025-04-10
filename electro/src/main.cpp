@@ -96,9 +96,8 @@ void setup(){
   writeRegister(0x07, 0x00); // LOFF_SENS FALTA
   //writeRegister 0x08
   writeRegister(0x09, 0xC2); // 11000010 RESP1 Resp. control register 1 
-  
-  writeRegister(0x0A, 0x03); // 00000011 RESP2 Resp. control register 1 
-  writeRegister(0x0B, 0x00); // 00000000 GPIOs 1 
+  writeRegister(0x0A, 0x05); // 00000101 RESP2 Resp. control register 1, offset off 
+  //writeRegister(0x0B, 0x00); // 00000000 GPIOs 1 
   delayMicroseconds(2); 
   digitalWrite(ADS1292_CS_PIN, HIGH);
   serial.println("ADS1292R Iniciat");
