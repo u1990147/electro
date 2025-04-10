@@ -101,16 +101,11 @@ void setup(){
   delayMicroseconds(2); 
   digitalWrite(ADS1292_CS_PIN, HIGH);
   serial.println("ADS1292R Iniciat");
-  
-  
-
 
 
 }
 
 void loop(){
-
-
 
 
   delay(500);
