@@ -15,8 +15,9 @@
 
 
 using namespace std;
-#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define SERVICE_UUID        "0000180D-0000-1000-8000-00805F9B34FB"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+
 
 //Pins SPI
 #define ADS1292_SCLK 18 
@@ -58,6 +59,7 @@ void setup(){
   pCharacteristic = pService->createCharacteristic(
                       CHARACTERISTIC_UUID,
                       BLECharacteristic::PROPERTY_READ |
+                      BLECharacteristic::PROPERTY_WRITE|
                       BLECharacteristic::PROPERTY_NOTIFY
                     );
   pCharacteristic->addDescriptor(new BLE2902());
