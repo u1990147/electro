@@ -13,7 +13,7 @@
 #define CMD_SDATAC 0x11
 #define CMD_RESET 0x06
 
-
+//Característiques
 using namespace std;
 #define HR_SERVICE_UUID        "00000180D-0000-1000-8000-00805F9B34FB"
 #define HRcp_CHARACTERISTIC_UUID "000002A39-0000-1000-8000-00805F9B34FB"
@@ -112,9 +112,10 @@ void setup(){
   pinMode(ADS1292_CS_PIN, OUTPUT);
   pinMode(ADS1292_START_PIN, OUTPUT);
   pinMode(ADS1292_PWDN_PIN, OUTPUT);
-  ADS1292R.ads1292Reset(ADS1292_CS_PIN, ADS1292_START_PIN, ADS1292_PWDN_PIN); // Reset de l'ADS1292R
+  digitalWrite(ADS1292_CS_PIN, HIGH); //Estableix el CS a HIGH per garantir que el xip no estigui seleccionat
+  reinicialitza_ads1292r();
+  
   //Configurem els registres de l'ADS1292R
-  //FALTA ID
   digitalWrite(ADS1292_CS_PIN, LOW); 
   delayMicroseconds(2);  //Seleccionem el xip 𝐶𝑆=0 
   writeRegister(0x01, 0x01); // 00000001 Config1: 250 SPS 
@@ -136,37 +137,63 @@ void setup(){
 }
 
 void loop(){
-
-
   delay(500);
-
   if (!deviceConnected && oldDeviceConnected) {
     delay(500);
     pServer->startAdvertising();
     Serial.println("Buscant dispositiu...");
     oldDeviceConnected = deviceConnected;
   }
-
-  if (deviceConnected && !oldDeviceConnected) oldDeviceConnected = deviceConnected;
+  if (deviceConnected && !oldDeviceConnected) 
+    oldDeviceConnected = deviceConnected;
+  //LECTURA ID
+  uint8_t id;
+  int intents = 0;
+  do {
+    id = readRegister(0x00); 
+    Serial.print("Intent "); 
+    Serial.print(intents + 1); 
+    Serial.print(": Registre ID (0x00)= 0x"); 
+    Serial.println(id, HEX);
+    if (id == 0x73) { 
+      break;
+    } 
+    intents++;
+    reinicialitza_ads1292r();
+    delay(100);
+  } while (intents < 3);
+  if (id != 0x73) { 
+    Serial.println(" Error: No s'ha detectat ID vàlid després de 3 intents.");
+  } else {
+    Serial.println("ID vàlid detectat");
+  }
+  delay(2000);
 }
 
 
 
 //Funcions
 
-void ads1292r::ads1292Reset(const int chipSelect,const int resetPin,const int startPin) 
-{
-  ads1922Reset(resetpin);
-  delay(100);
-  ads1292DisableStart(startPin); 
-  ads1292EnableStart(startPin); 
-  ads1292HardStop(startPin); 
-  ads1292StartDataConvCommand(chipSelect); 
-  ads1292SoftStop(chipSelect); 
-  delay(50); 
-  ads1292StopReadDataContinuous(chipSelect); //Atura el mode de lectura continua (SDATAC)
-  delay(300);
+//Comunicació amb SPI
+void writeCommand(uint8_t cmd) { 
+  digitalWrite(ADS1292_CS_PIN, LOW); //Selecciona xip
+  delayMicroseconds(2); 
+  SPI.transfer(cmd); 
+  delayMicroseconds(2); 
+  digitalWrite(ADS1292_CS_PIN, HIGH); //Deselecciona
+  delay(1);
 }
+void reinicialitza_ads1292r() { 
+  digitalWrite(ADS1292_PWDN_PIN, LOW); 
+  delay(2); 
+  digitalWrite(ADS1292_PWDN_PIN, HIGH); 
+  delay(1000);
+  writeCommand(CMD_RESET); 
+  delay(10); 
+  writeCommand(CMD_SDATAC); 
+  delay(10); 
+  digitalWrite(ADS1292_START_PIN, HIGH);
+  }
 
 void writeRegister(uint8_t reg, uint8_t value) {
    digitalWrite(ADS1292_CS_PIN, LOW); 
@@ -186,17 +213,19 @@ void writeRegister(uint8_t reg, uint8_t value) {
    Serial.print(value, HEX); 
    Serial.print(" | Llegit: 0x"); 
    Serial.println(readBack, HEX); 
-   if (readBack != value) { Serial.println(" ERROR: El valor escrit no coincideix amb el llegit!"); Desenvolup. Projectes electrònica32 }
+   if (readBack != value) { 
+    Serial.println(" ERROR: El valor escrit no coincideix amb el llegit!"); 
+    Desenvolup. Projectes electrònica32 
+  }
 }
 
 uint8_t readRegister(uint8_t reg) { 
   digitalWrite(ADS1292_CS_PIN, LOW); 
   delayMicroseconds(2); 
-  SPI.transfer(0x20 | reg); // 0x20→OPCODE per llegir 
+  SPI.transfer(CMD_READ_REG | reg); // 0x20→OPCODE per llegir 
   SPI.transfer(0x00); 
   uint8_t value = SPI.transfer(0x00); 
-  //enviem una dada qualsevol per poder rebre el 
-  //valor a la vegada 
+  //enviem una dada qualsevol per poder rebre el valor a la vegada 
   delayMicroseconds(2); 
   digitalWrite(ADS1292_CS_PIN, HIGH); 
   return value; 
