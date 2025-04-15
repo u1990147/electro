@@ -8,8 +8,9 @@
 // Comandes de l'ADS1292R 
 #define CMD_READ_REG 0x20
 #define CMD_STOP 0x0A
-#define CMD_SDATAC 0x11 //Lectura continua
+#define CMD_SDATAC 0x11 //Sortir de lectura continua
 #define CMD_RESET 0x06
+#define CMD_RDATA 0x12 //llegir dades
 //Pins SPI
 #define ADS1292_SCLK 18 
 #define ADS1292_MISO 19 
@@ -19,22 +20,25 @@
 #define ADS1292_START_PIN 4 
 #define ADS1292_PWDN_PIN 22
 
-//Característiques
+//Característiques BLE
 using namespace std;
 #define SERVICE_UUID        "00000180D-0000-1000-8000-00805F9B34FB"
 #define HRcp_CHARACTERISTIC_UUID "000002A39-0000-1000-8000-00805F9B34FB"
 #define HRmax_CHARACTERISTIC_UUID "000002A37-0000-1000-8000-00805F9B34FB"
 #define HRmesura_CHARACTERISTIC_UUID "000002A8D-0000-1000-8000-00805F9B34FB"
 #define RESP_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+
 #define BUFFER_SIZE 50
 //capturar dades
 float ecg_buffer[BUFFER_SIZE];
 float resp_buffer[BUFFER_SIZE];
-ads1292r ADS1292R;
+volatile bool novesDadesECG= false;
 
 //Crear el servidor BLE i les característiques
 BLEServer* pServer = NULL;
-BLECharacteristic* pHRCharacteristic = NULL;
+BLECharacteristic* pHRmaxCharacteristic = NULL;
+BLECharacteristic* pHRcpCharacteristic = NULL;
+BLECharacteristic* pHRmesuraCharacteristic = NULL;
 BLECharacteristic* pRESPCharacteristic = NULL;
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
@@ -54,6 +58,8 @@ class MyServerCallbacks: public BLEServerCallbacks {
 //ECG i HRV en core 0, enviament dades per BLE core 1
 TaskHandle_t TaskECG;
 TaskHandle_t TaskBLE;
+
+//interrupcions
 
 void setup(){
   Serial.begin(115200);
@@ -248,12 +254,22 @@ uint8_t readRegister(uint8_t reg) {
   return value; 
 }
 //capturar dades ECG i càlcul HRV
-void capturarDades(){
-
+void IRAM_ATTR DRDYinterrupt(){
+  novesDadesECG= true;
 }
 void TaskECGcode(void *pvParameters){
   //mode sleep, i quan attach pin DRDY, aturar tasca i que inicii quan en el core 1 li arriba que ha llegit interrupció
-  attachinterrupt(ADS1292_DRDY_PIN, capturarDades, HIGH);
+  attachinterrupt(digitalPinToInterrupt(ADS1292_DRDY_PIN), DRDYinterrupt, FALLING);
+  if(novesDadesECG){
+    novesDadesECG=false;
+    digitalWrite(ADS1292_CS_PIN, LOW);
+    SPI.transfer(CMD_RDATA);
+    uint32_t ecgData;
+    ecgData = SPI.transfer(0x00)<<16; // Llegir primer byte
+    ecgData |= (uint32_t)SPI.transfer(0x00)<<8; // Llegir segon byte 
+    ecgData |= (uint32_t)SPI.transfer(0x00); // Llegir tercer byte
+    digitalWrite(ADS1292_CS_PIN, HIGH);
+  }
 }
 //Enviament de dades per BLE
 void TaskBLEcode(void *pvParameters){
