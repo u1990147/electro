@@ -33,6 +33,9 @@ using namespace std;
 float ecg_buffer[BUFFER_SIZE];
 float resp_buffer[BUFFER_SIZE];
 volatile bool novesDadesECG= false;
+volatile bool bufferPle=false;
+//interval RR
+unsigned long last_calc_time= 0;
 
 //Crear el servidor BLE i les característiques
 BLEServer* pServer = NULL;
@@ -57,6 +60,7 @@ class MyServerCallbacks: public BLEServerCallbacks {
 
 //ECG i HRV en core 0, enviament dades per BLE core 1
 TaskHandle_t TaskECG;
+TaskHandle_t TaskRR;
 TaskHandle_t TaskBLE;
 
 //interrupcions
@@ -134,15 +138,22 @@ void setup(){
   delayMicroseconds(2); 
   digitalWrite(ADS1292_CS_PIN, HIGH);
   serial.println("ADS1292R Iniciat");
-
+  
+  //interrupció ECG
+  attachinterrupt(digitalPinToInterrupt(ADS1292_DRDY_PIN), DRDYinterrupt, FALLING);
+  //Interrupció RR
+  timerRR = timerBegin(0, 80, true);
+  timerAttachInterrupt(timerRR, &onTime, true);
+  timerAlarmWrite(timerRR, 900000000, true);
+  timerAlarmEnable(timerRR);
   //Core 0
   xTaskCreatePinnedToCore(
-    TaskECGcode,
-    "TaskECG",
+    TaskECGcode, //Nom de la funció que implementa la tasca
+    "TaskECG", //Nom de la tasca
     10000,
     NULL,
     1, //Prioritat
-    &TaskECG,
+    &TaskECG, //Tasca associada.
     0 //Core 0
   );
   delay(100);
@@ -157,6 +168,16 @@ void setup(){
     1 //Core 1
   );
   delay(100);
+
+  xTaskCreatePinnedToCore{
+    TaskRRcode,
+    "TaskRR",
+    10000,
+    NULL,
+    1,
+    &TaskRR,
+    0
+  };
 }
 
 void loop(){
@@ -253,25 +274,67 @@ uint8_t readRegister(uint8_t reg) {
   digitalWrite(ADS1292_CS_PIN, HIGH); 
   return value; 
 }
+
+//convertir a mv
+float convertir_mv(long rawData){
+  const float Vref= 2.42;
+  int gain=6;
+  fullScale = 8388607.0; 
+  float voltage = (rawValue / fullScale) * (vRef / gain); // en Volts 
+  return voltage * 1000.0; // en mV 
+}
+
 //capturar dades ECG i càlcul HRV
 void IRAM_ATTR DRDYinterrupt(){
   novesDadesECG= true;
 }
 void TaskECGcode(void *pvParameters){
-  //mode sleep, i quan attach pin DRDY, aturar tasca i que inicii quan en el core 1 li arriba que ha llegit interrupció
-  attachinterrupt(digitalPinToInterrupt(ADS1292_DRDY_PIN), DRDYinterrupt, FALLING);
-  if(novesDadesECG){
-    novesDadesECG=false;
-    digitalWrite(ADS1292_CS_PIN, LOW);
-    SPI.transfer(CMD_RDATA);
-    uint32_t ecgData;
-    ecgData = SPI.transfer(0x00)<<16; // Llegir primer byte
-    ecgData |= (uint32_t)SPI.transfer(0x00)<<8; // Llegir segon byte 
-    ecgData |= (uint32_t)SPI.transfer(0x00); // Llegir tercer byte
-    digitalWrite(ADS1292_CS_PIN, HIGH);
+  static int index = 0; 
+  while(true){
+    if(novesDadesECG){
+      novesDadesECG=false;
+      digitalWrite(ADS1292_CS_PIN, LOW);
+      SPI.transfer(CMD_RDATA);
+      uint32_t ecgData=0;
+      ecgData = SPI.transfer(0x00)<<16; // Llegir primer byte
+      ecgData |= (uint32_t)SPI.transfer(0x00)<<8; // Llegir segon byte 
+      ecgData |= (uint32_t)SPI.transfer(0x00); // Llegir tercer byte
+      digitalWrite(ADS1292_CS_PIN, HIGH);
+      
+      ecg_buffer[index] = convertir_mv(ecgData);
+      index++;
+
+      if(index >= BUFFER_SIZE){
+        index = 0;
+        bufferPle = true;
+      }
+    }
   }
 }
 //Enviament de dades per BLE
 void TaskBLEcode(void *pvParameters){
+  for(;;){
+    if(bufferPle){
+      bufferPle = false;
+      if(deviceConnected){
 
+        pHRmesuraCharacteristic->setValue((uint8_t*)ecg_buffer, sizeof(ecg_buffer));
+        pHRmesuraCharacteristic->notify();
+
+        pRESPCharacteristic->setValue((uint8_t*)resp_buffer, sizeof(resp_buffer));
+        pRESPCharacteristic->notify();
+        
+      }
+      delay(1000); 
+  }
+  }
+}
+
+void TaskRRcode(void *pvParameters){
+  for(;;){
+    if (millis() - last_calc_time > 90000) {
+
+      last_calc_time = millis();
+    }
+  }
 }
