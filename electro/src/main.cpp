@@ -5,23 +5,11 @@
 #include <BLE2902.h>
 #include <SPI.h>
 
-
-
 // Comandes de l'ADS1292R 
 #define CMD_READ_REG 0x20
 #define CMD_STOP 0x0A
 #define CMD_SDATAC 0x11 //Lectura continua
 #define CMD_RESET 0x06
-
-//Característiques
-using namespace std;
-#define SERVICE_UUID        "00000180D-0000-1000-8000-00805F9B34FB"
-#define HRcp_CHARACTERISTIC_UUID "000002A39-0000-1000-8000-00805F9B34FB"
-#define HRmax_CHARACTERISTIC_UUID "000002A37-0000-1000-8000-00805F9B34FB"
-#define HRmesura_CHARACTERISTIC_UUID "000002A8D-0000-1000-8000-00805F9B34FB"
-#define RESP_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
-
-
 //Pins SPI
 #define ADS1292_SCLK 18 
 #define ADS1292_MISO 19 
@@ -31,6 +19,17 @@ using namespace std;
 #define ADS1292_START_PIN 4 
 #define ADS1292_PWDN_PIN 22
 
+//Característiques
+using namespace std;
+#define SERVICE_UUID        "00000180D-0000-1000-8000-00805F9B34FB"
+#define HRcp_CHARACTERISTIC_UUID "000002A39-0000-1000-8000-00805F9B34FB"
+#define HRmax_CHARACTERISTIC_UUID "000002A37-0000-1000-8000-00805F9B34FB"
+#define HRmesura_CHARACTERISTIC_UUID "000002A8D-0000-1000-8000-00805F9B34FB"
+#define RESP_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+#define BUFFER_SIZE 50
+//capturar dades
+float ecg_buffer[BUFFER_SIZE];
+float resp_buffer[BUFFER_SIZE];
 ads1292r ADS1292R;
 
 //Crear el servidor BLE i les característiques
@@ -98,8 +97,6 @@ void setup(){
   BLEDevice::startAdvertising();
   Serial.println("BLE iniciat i en publicació");
 
-
-
   // Inicialitzar ADS1292R i SPI 
   delay(2000)
   SPI.begin(ADS1292_SCLK, ADS1292_MISO, ADS1292_MOSI, ADS1292_CS_PIN);
@@ -140,10 +137,20 @@ void setup(){
     NULL,
     1, //Prioritat
     &TaskECG,
-    1 //Core 0
+    0 //Core 0
   );
   delay(100);
   //Core 1
+  xTaskCreatePinnedToCore(
+    TaskBLEcode,
+    "TaskBLE",
+    10000,
+    NULL,
+    1, //Prioritat
+    &TaskBLE,
+    1 //Core 1
+  );
+  delay(100);
 }
 
 void loop(){
@@ -241,14 +248,14 @@ uint8_t readRegister(uint8_t reg) {
   return value; 
 }
 //capturar dades ECG i càlcul HRV
+void capturarDades(){
+
+}
 void TaskECGcode(void *pvParameters){
   //mode sleep, i quan attach pin DRDY, aturar tasca i que inicii quan en el core 1 li arriba que ha llegit interrupció
-  while (digitalRead(ADS1292_DRDY_PIN) == HIGH) {  }
-  digitalWrite(ADS1292_CS_PIN, LOW);
-  SPI.transfer(CMD_RDATA);
-  uint32_t ecgData;
-  ecgData = SPI.transfer(0x00)<<16; // Llegir primer byte
-  ecgData |= (uint32_t)SPI.transfer(0x00)<<8; // Llegir segon byte 
-  ecgData |= (uint32_t)SPI.transfer(0x00); // Llegir tercer byte
-  digitalWrite(ADS1292_CS_PIN, HIGH);
+  attachinterrupt(ADS1292_DRDY_PIN, capturarDades, HIGH);
+}
+//Enviament de dades per BLE
+void TaskBLEcode(void *pvParameters){
+
 }
