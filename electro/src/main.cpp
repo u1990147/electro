@@ -10,17 +10,15 @@
 // Comandes de l'ADS1292R 
 #define CMD_READ_REG 0x20
 #define CMD_STOP 0x0A
-#define CMD_SDATAC 0x11
+#define CMD_SDATAC 0x11 //Lectura continua
 #define CMD_RESET 0x06
 
 //Característiques
 using namespace std;
-#define HR_SERVICE_UUID        "00000180D-0000-1000-8000-00805F9B34FB"
+#define SERVICE_UUID        "00000180D-0000-1000-8000-00805F9B34FB"
 #define HRcp_CHARACTERISTIC_UUID "000002A39-0000-1000-8000-00805F9B34FB"
 #define HRmax_CHARACTERISTIC_UUID "000002A37-0000-1000-8000-00805F9B34FB"
 #define HRmesura_CHARACTERISTIC_UUID "000002A8D-0000-1000-8000-00805F9B34FB"
-
-#define RESP_SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define RESP_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
 
@@ -54,6 +52,10 @@ class MyServerCallbacks: public BLEServerCallbacks {
     }
 };
 
+//ECG i HRV en core 0, enviament dades per BLE core 1
+TaskHandle_t TaskECG;
+TaskHandle_t TaskBLE;
+
 void setup(){
   Serial.begin(115200);
   Serial.println("Iniciant BLE...");
@@ -61,40 +63,37 @@ void setup(){
   pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
 
-  BLEService *pHRService = pServer->createService(HR_SERVICE_UUID);
-  BLEService *pRESPService = pServer->createService(RESP_SERVICE_UUID);
-  pHRcpCharacteristic = pHRService->createCharacteristic( //HR control point demana que reinci els RR-intervals acumulats
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+  pHRcpCharacteristic = pService->createCharacteristic( //HR control point demana que reinci els RR-intervals acumulats
                       HRcp_CHARACTERISTIC_UUID,
                       BLECharacteristic::PROPERTY_WRITE
                     );
   pHRcpCharacteristic->addDescriptor(new BLE2902());
 
-  pHRmaxCharacteristic = pHRService->createCharacteristic(
+  pHRmaxCharacteristic = pService->createCharacteristic(
                       HRmax_CHARACTERISTIC_UUID,
                       BLECharacteristic::PROPERTY_READ |
                       BLECharacteristic::PROPERTY_NOTIFY
                     );
   pHRmaxCharacteristic->addDescriptor(new BLE2902());
 
-  pHRmesuraCharacteristic = pHRService->createCharacteristic(
+  pHRmesuraCharacteristic = pService->createCharacteristic(
                       HRmesura_CHARACTERISTIC_UUID,
                       BLECharacteristic::PROPERTY_READ |
                       BLECharacteristic::PROPERTY_NOTIFY
                     );
   pHRmesuraCharacteristic->addDescriptor(new BLE2902());
-  pHRService->start();
   
-  pRESPCharacteristic = pRESPService->createCharacteristic(
+  pRESPCharacteristic = pService->createCharacteristic(
                       RESP_CHARACTERISTIC_UUID,
                       BLECharacteristic::PROPERTY_READ |
                       BLECharacteristic::PROPERTY_NOTIFY
-  );
-  RESPCharacteristic->addDescriptor(new BLE2902());
-  pRESPService->start();
+                    );
+  pRESPCharacteristic->addDescriptor(new BLE2902());
+  pService->start();
 
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(HR_SERVICE_UUID);
-  pAdvertising->addServiceUUID(RESP_SERVICE_UUID);
+  pAdvertising->addServiceUUID(SERVICE_UUID);
   pAdvertising->setScanResponse(true);
   BLEDevice::startAdvertising();
   Serial.println("BLE iniciat i en publicació");
@@ -107,7 +106,7 @@ void setup(){
   SPI.setBitOrder(MSBFIRST);
   //CPOL = 0, CPHA = 1
   SPI.setDataMode(SPI_MODE1);
-  SPI.setClockDivider(SPI_CLOCK_DIV16); // 1MHz
+  SPI.setClockDivider(SPI_CLOCK_DIV16); //1MHz
   pinMode(ADS1292_DRDY_PIN, INPUT);
   pinMode(ADS1292_CS_PIN, OUTPUT);
   pinMode(ADS1292_START_PIN, OUTPUT);
@@ -124,16 +123,27 @@ void setup(){
   writeRegister(0x04, 0x50); // 01010000 Channel 1: Enabled, GAIN = 8, Normal Electrode
   writeRegister(0x05, 0x00); // 00000000 Channel 2: Enabled, Gain=6, Normal Electrode 
   writeRegister(0x06, 0x3F); // 0011111 RLD_SENS escollim els dos canals 
-  writeRegister(0x07, 0x00); // LOFF_SENS FALTA
+  writeRegister(0x07, 0x2C); // 01001100 
   //writeRegister 0x08
   writeRegister(0x09, 0xC2); // 11000010 RESP1 Resp. control register 1 
   writeRegister(0x0A, 0x05); // 00000101 RESP2 Resp. control register 1, offset off 
-  //writeRegister(0x0B, 0x00); // 00000000 GPIOs 1 
+  writeRegister(0x0B, 0x00); // 00000000 GPIOs 
   delayMicroseconds(2); 
   digitalWrite(ADS1292_CS_PIN, HIGH);
   serial.println("ADS1292R Iniciat");
 
-
+  //Core 0
+  xTaskCreatePinnedToCore(
+    TaskECGcode,
+    "TaskECG",
+    10000,
+    NULL,
+    1, //Prioritat
+    &TaskECG,
+    1 //Core 0
+  );
+  delay(100);
+  //Core 1
 }
 
 void loop(){
@@ -229,4 +239,16 @@ uint8_t readRegister(uint8_t reg) {
   delayMicroseconds(2); 
   digitalWrite(ADS1292_CS_PIN, HIGH); 
   return value; 
+}
+//capturar dades ECG i càlcul HRV
+void TaskECGcode(void *pvParameters){
+  //mode sleep, i quan attach pin DRDY, aturar tasca i que inicii quan en el core 1 li arriba que ha llegit interrupció
+  while (digitalRead(ADS1292_DRDY_PIN) == HIGH) {  }
+  digitalWrite(ADS1292_CS_PIN, LOW);
+  SPI.transfer(CMD_RDATA);
+  uint32_t ecgData;
+  ecgData = SPI.transfer(0x00)<<16; // Llegir primer byte
+  ecgData |= (uint32_t)SPI.transfer(0x00)<<8; // Llegir segon byte 
+  ecgData |= (uint32_t)SPI.transfer(0x00); // Llegir tercer byte
+  digitalWrite(ADS1292_CS_PIN, HIGH);
 }
