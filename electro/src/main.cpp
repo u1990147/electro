@@ -34,8 +34,12 @@ float ecg_buffer[BUFFER_SIZE];
 float resp_buffer[BUFFER_SIZE];
 volatile bool novesDadesECG= false;
 volatile bool bufferPle=false;
-//interval RR
+//Càlculs
 unsigned long last_calc_time= 0;
+hw_timer_t * timerCalc = NULL;
+volatile bool ferCalculs = false;
+float potenciaLF=0;
+float potenciaHF=0;
 
 //Crear el servidor BLE i les característiques
 BLEServer* pServer = NULL;
@@ -60,7 +64,7 @@ class MyServerCallbacks: public BLEServerCallbacks {
 
 //ECG i HRV en core 0, enviament dades per BLE core 1
 TaskHandle_t TaskECG;
-TaskHandle_t TaskRR;
+TaskHandle_t Task_calc;
 TaskHandle_t TaskBLE;
 
 //interrupcions
@@ -142,10 +146,10 @@ void setup(){
   //interrupció ECG
   attachinterrupt(digitalPinToInterrupt(ADS1292_DRDY_PIN), DRDYinterrupt, FALLING);
   //Interrupció RR
-  timerRR = timerBegin(0, 80, true);
-  timerAttachInterrupt(timerRR, &onTime, true);
-  timerAlarmWrite(timerRR, 900000000, true);
-  timerAlarmEnable(timerRR);
+  timerCalc = timerBegin(0, 80, true);
+  timerAttachInterrupt(timerCalc, &onTime, true);
+  timerAlarmWrite(timerCalc, 900000000, true);
+  timerAlarmEnable(timerCalc);
   //Core 0
   xTaskCreatePinnedToCore(
     TaskECGcode, //Nom de la funció que implementa la tasca
@@ -157,6 +161,7 @@ void setup(){
     0 //Core 0
   );
   delay(100);
+
   //Core 1
   xTaskCreatePinnedToCore(
     TaskBLEcode,
@@ -168,16 +173,16 @@ void setup(){
     1 //Core 1
   );
   delay(100);
-
   xTaskCreatePinnedToCore{
-    TaskRRcode,
-    "TaskRR",
+    Task_calc_code,
+    "Task_calc",
     10000,
     NULL,
     1,
-    &TaskRR,
-    0
+    &Task_calc,
+    1
   };
+  delay(100);
 }
 
 void loop(){
@@ -330,11 +335,29 @@ void TaskBLEcode(void *pvParameters){
   }
 }
 
-void TaskRRcode(void *pvParameters){
-  for(;;){
-    if (millis() - last_calc_time > 90000) {
+void IRAM_ATTR onTime(){
+  ferCalculs=true;
+}
 
-      last_calc_time = millis();
+void Task_calc_code(void *pvParameters){
+  for(;;){
+    if (ferCalculs) {
+      ferCalculs=False;
+      // 1. Obtenir RR intervals (array ja omplert)
+      // float rrSeries[N]; // ja hauries d’haver omplert amb 2 minuts de dades
+
+      // 2. Fer interpolació si cal, i passar a senyal uniforme
+      // float signalInterp[N]; 
+
+      // 3. Fer FFT (usa KissFFT, arduinoFFT o similar)
+
+      // 4. Calcular potències LF i HF
+      for (int i = 0; i < N/2; i++) {
+        if (f[i] >= 0.04 && f[i] <= 0.15)
+          powerLF += P[i];
+        else if (f[i] > 0.15 && f[i] <= 0.4)
+          powerHF += P[i];
+      }
     }
   }
 }
