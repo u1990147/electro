@@ -32,12 +32,18 @@ float resp_buffer[BUFFER_SIZE];
 volatile bool novesDadesECG= false;
 volatile bool bufferPle=false;
 //Càlculs
-float sns_val = 0, pns_val = 0, stress_val = 0;
+float sns_val = 0; 
+float pns_val = 0; 
+float stress_val = 0;
 unsigned long last_calc_time= 0;
 hw_timer_t * timerCalc = NULL;
 volatile bool ferCalculs = false;
 float potenciaLF=0;
 float potenciaHF=0;
+float peakTimes[BUFFER_SIZE];
+float rrIntervals[BUFFER_SIZE];
+int   peakCount = 0;
+int rrCount = 0;
 
 //Crear el servidor BLE i les característiques
 BLEServer* pServer = NULL;
@@ -326,6 +332,23 @@ void TaskBLEcode(void *pvParameters){
 
 void IRAM_ATTR onTime(){
   ferCalculs=true;
+}
+
+void detectarPics() {
+  for (int i = 0; i < BUFFER_SIZE - 1; i++) {
+    // local màxim, per sobre llindar 
+    if (ecg_buffer[i] > threshold
+        && ecg_buffer[i] > ecg_buffer[i-1]
+        && ecg_buffer[i] > ecg_buffer[i+1]){
+      float t = i * Ts;  // temps en segons
+      tempsPics[countPics++] = t;
+
+      
+        float penultimT = tempsPics[countPics-1];
+        rrIntervals[rrCount++] = t - penultimT;
+      }
+    }
+  }
 }
 
 void Task_calc_code(void *pvParameters){
