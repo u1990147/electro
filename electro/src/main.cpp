@@ -23,10 +23,7 @@
 //Característiques BLE
 using namespace std;
 #define SERVICE_UUID        "00000180D-0000-1000-8000-00805F9B34FB"
-#define HRcp_CHARACTERISTIC_UUID "000002A39-0000-1000-8000-00805F9B34FB"
-#define HRmax_CHARACTERISTIC_UUID "000002A37-0000-1000-8000-00805F9B34FB"
-#define HRmesura_CHARACTERISTIC_UUID "000002A8D-0000-1000-8000-00805F9B34FB"
-#define RESP_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
 #define BUFFER_SIZE 50
 //capturar dades
@@ -44,10 +41,7 @@ float potenciaHF=0;
 
 //Crear el servidor BLE i les característiques
 BLEServer* pServer = NULL;
-BLECharacteristic* pHRmaxCharacteristic = NULL;
-BLECharacteristic* pHRcpCharacteristic = NULL;
-BLECharacteristic* pHRmesuraCharacteristic = NULL;
-BLECharacteristic* pRESPCharacteristic = NULL;
+BLECharacteristic* pCharacteristic = NULL;
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
 
@@ -80,32 +74,14 @@ void setup(){
   pServer->setCallbacks(new MyServerCallbacks());
 
   BLEService *pService = pServer->createService(SERVICE_UUID);
-  pHRcpCharacteristic = pService->createCharacteristic( //HR control point demana que reinci els RR-intervals acumulats
-                      HRcp_CHARACTERISTIC_UUID,
-                      BLECharacteristic::PROPERTY_WRITE
-                    );
-  pHRcpCharacteristic->addDescriptor(new BLE2902());
-
-  pHRmaxCharacteristic = pService->createCharacteristic(
-                      HRmax_CHARACTERISTIC_UUID,
-                      BLECharacteristic::PROPERTY_READ |
-                      BLECharacteristic::PROPERTY_NOTIFY
-                    );
-  pHRmaxCharacteristic->addDescriptor(new BLE2902());
-
-  pHRmesuraCharacteristic = pService->createCharacteristic(
-                      HRmesura_CHARACTERISTIC_UUID,
-                      BLECharacteristic::PROPERTY_READ |
-                      BLECharacteristic::PROPERTY_NOTIFY
-                    );
-  pHRmesuraCharacteristic->addDescriptor(new BLE2902());
   
-  pRESPCharacteristic = pService->createCharacteristic(
-                      RESP_CHARACTERISTIC_UUID,
+  
+  pCharacteristic = pService->createCharacteristic(
+                      CHARACTERISTIC_UUID,
                       BLECharacteristic::PROPERTY_READ |
                       BLECharacteristic::PROPERTY_NOTIFY
                     );
-  pRESPCharacteristic->addDescriptor(new BLE2902());
+  pCharacteristic->addDescriptor(new BLE2902());
   pService->start();
 
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
@@ -298,17 +274,23 @@ void TaskECGcode(void *pvParameters){
   static int index = 0; 
   while(true){
     if(novesDadesECG){
-        novesDadesECG=false;
-        digitalWrite(ADS1292_CS_PIN, LOW);
-        SPI.transfer(CMD_RDATA);
+      novesDadesECG=false;
+      digitalWrite(ADS1292_CS_PIN, LOW);
+      SPI.transfer(CMD_RDATA);
       uint32_t ecgData=0;
       ecgData = SPI.transfer(0x00)<<16; // Llegir primer byte
       ecgData |= (uint32_t)SPI.transfer(0x00)<<8; // Llegir segon byte 
       ecgData |= (uint32_t)SPI.transfer(0x00); // Llegir tercer byte
+
+      uint32_t respData=0;
+      respData = SPI.transfer(0x00)<<16; // Llegir primer byte
+      respData |= (uint32_t)SPI.transfer(0x00)<<8; // Llegir segon byte 
+      respData |= (uint32_t)SPI.transfer(0x00); // Llegir tercer byte
+
       digitalWrite(ADS1292_CS_PIN, HIGH);
       
       ecg_buffer[index] = convertir_mv(ecgData);
-        resp_buffer[index]=
+      resp_buffer[index]= convertir_mv(respData);
       index++;
     
       if(index >= BUFFER_SIZE){
@@ -321,17 +303,22 @@ void TaskECGcode(void *pvParameters){
 //Enviament de dades per BLE
 void TaskBLEcode(void *pvParameters){
   for(;;){
-    if(bufferPle){
+    if(bufferPle && deviceConnected){
       bufferPle = false;
-      if(deviceConnected){
-
-        pHRmesuraCharacteristic->setValue((uint8_t*)ecg_buffer, sizeof(ecg_buffer));
-        pHRmesuraCharacteristic->notify();
-
-        pRESPCharacteristic->setValue((uint8_t*)resp_buffer, sizeof(resp_buffer));
-        pRESPCharacteristic->notify();
-        
+      String data="";
+      for(int i=0; i<BUFFER_SIZE; i++){
+        data +=String(ecg_buffer[i], 2);
       }
+      for(int i=0; i<BUFFER_SIZE; i++){
+        data +=String(resp_buffer[i], 2);
+      }
+      data += String(sns_val, 2);
+      data += String(pns_val, 2);
+      data += String(stress_val, 2);  
+
+      pCharacteristic->setValue((uint8_t*)data, data.length());
+      pCharacteristic->notify();
+        
       delay(1000); 
   }
   }
