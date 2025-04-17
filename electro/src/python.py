@@ -7,8 +7,6 @@ from bleak import BleakClient, BleakError
 
 ADDRESS = "EC:E3:34:7B:77:16"
 SERVICE_UUID = "00000180D-0000-1000-8000-00805F9B34FB"
-HRcp_CHARACTERISTIC_UUID = "000002A39-0000-1000-8000-00805F9B34FB"
-HRmax_CHARACTERISTIC_UUID = "000002A37-0000-1000-8000-00805F9B34FB"
 HRmesura_CHARACTERISTIC_UUID = "000002A8D-0000-1000-8000-00805F9B34FB"
 RESP_CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
@@ -19,17 +17,27 @@ time_data = []
 sns_val = 0.0 
 pns_val = 0.0 
 stress_val = 0.0
-BUFFER_SIZE = 50
-async def ble(address):
+BUFFER_SIZE = 1000 # 50 mostres per paquet , 20 paquets
+INTERVAL = 0.2 #250SPS 50 mostres=0,2s
+
+async def main():
     try:
-        async with BleakClient(address) as client:
+        async with BleakClient(ADDRESS) as client:
             print("Connectat")
-            value = await client.read_gatt_char(RESP_CHARACTERISTIC_UUID) #INCORRECTE Mirar què hem d'enviar
-            print(f"Informació rebuda: {value.decode()}")
+            GenerarGrafic()
+            while  True;
+                if client.is_connected():
+                    await client.start_notify(HRmesura_CHARACTERISTIC_UUID, notification_handler)
+                    await client.start_notify(RESP_CHARACTERISTIC_UUID, notification_handler)
+                    await asyncio.sleep(0.1);
+                    print("Informació rebuda")
+                else:
+                    print("Desconnectat")
+                    break
     except BleakError as e:
         print(f"Error rebuda: {e}")
 if __name__ == "__main__":
-    asyncio.run(ble())
+    asyncio.run(main())
 
 def GenerarGrafic():
     #Inicialitzar gràfica
@@ -58,3 +66,40 @@ def update_plot():
     # Actualitzar estrès
     stress_text.set_text(f"Estrès:{stress_val:.1f}")
     plt.pause(0.1)
+
+def parse_data(data_str):#Separem per comes les dades
+    global sns_val, pns_val, stress_val
+    try:
+        parts= list(map(float,data_str.strip().split(",")))
+        if len(parts) >= 103:
+            resp_vals = parts[:50]
+            ecg_vals  = parts[50:100]
+            sns_val   = parts[100]
+            pns_val   = parts[101]
+            stress_val= parts[102]
+            return ecg_vals, resp_vals
+    except Exception as e:
+        print("Error al parsejar:", e)
+    return [], []
+
+def notification_handler(sender,data):
+    global ecg_data, resp_data, time_data, sns_val, pns_val, stress_val
+    try:
+        #Decodifiquem i extraiem valors
+        decoded = data.decode("utf-8")
+        ecg_vals, resp_vals = parse_data(decoded)
+         #Si tenim dades, les afegim a les llistes globals i actualitzem el temps
+        if ecg_vals and resp_vals:
+            #l'últim temps o 0 si és la primera vegada
+            now = time_data[-1] + INTERVAL if time_data else 0.0
+
+            for i in range(len(ecg_vals)):
+                time_data.append(now + i * (INTERVAL / BUFFER_SIZE)) #Reconstruim eix del temps
+                ecg_data.append(ecg_vals[i]) #guarda les 50 noves dades enviades
+                resp_data.append(resp_vals[i])
+
+            #Refresquem la gràfica
+            update_plot()
+
+    except Exception as e:
+        print("Error en handler:", e)
