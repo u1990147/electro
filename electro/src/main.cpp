@@ -35,6 +35,7 @@ float resp_buffer[BUFFER_SIZE];
 volatile bool novesDadesECG= false;
 volatile bool bufferPle=false;
 //Càlculs
+float sns_val = 0, pns_val = 0, stress_val = 0;
 unsigned long last_calc_time= 0;
 hw_timer_t * timerCalc = NULL;
 volatile bool ferCalculs = false;
@@ -68,6 +69,8 @@ TaskHandle_t Task_calc;
 TaskHandle_t TaskBLE;
 
 //interrupcions
+void IRAM_ATTR DRDYinterrupt();
+void IRAM_ATTR onTimer();
 
 void setup(){
   Serial.begin(115200);
@@ -124,7 +127,6 @@ void setup(){
   pinMode(ADS1292_PWDN_PIN, OUTPUT);
   digitalWrite(ADS1292_CS_PIN, HIGH); //Estableix el CS a HIGH per garantir que el xip no estigui seleccionat
   reinicialitza_ads1292r();
-  
   //Configurem els registres de l'ADS1292R
   digitalWrite(ADS1292_CS_PIN, LOW); 
   delayMicroseconds(2);  //Seleccionem el xip 𝐶𝑆=0 
@@ -154,10 +156,10 @@ void setup(){
   xTaskCreatePinnedToCore(
     TaskECGcode, //Nom de la funció que implementa la tasca
     "TaskECG", //Nom de la tasca
-    10000,
-    NULL,
+    4096,
+    nullptr,
     1, //Prioritat
-    &TaskECG, //Tasca associada.
+    nullptr,//nullptrTasca associada.
     0 //Core 0
   );
   delay(100);
@@ -166,27 +168,26 @@ void setup(){
   xTaskCreatePinnedToCore(
     TaskBLEcode,
     "TaskBLE",
-    10000,
-    NULL,
+    4096,
+    nullptr,
     1, //Prioritat
-    &TaskBLE,
+    nullptr,
     1 //Core 1
   );
   delay(100);
   xTaskCreatePinnedToCore{
     Task_calc_code,
     "Task_calc",
-    10000,
-    NULL,
+    4096,
+    nullptr,
     1,
-    &Task_calc,
+    nullptr,
     1
   };
   delay(100);
 }
 
 void loop(){
-  delay(500);
   if (!deviceConnected && oldDeviceConnected) {
     delay(500);
     pServer->startAdvertising();
@@ -297,9 +298,9 @@ void TaskECGcode(void *pvParameters){
   static int index = 0; 
   while(true){
     if(novesDadesECG){
-      novesDadesECG=false;
-      digitalWrite(ADS1292_CS_PIN, LOW);
-      SPI.transfer(CMD_RDATA);
+        novesDadesECG=false;
+        digitalWrite(ADS1292_CS_PIN, LOW);
+        SPI.transfer(CMD_RDATA);
       uint32_t ecgData=0;
       ecgData = SPI.transfer(0x00)<<16; // Llegir primer byte
       ecgData |= (uint32_t)SPI.transfer(0x00)<<8; // Llegir segon byte 
@@ -307,8 +308,9 @@ void TaskECGcode(void *pvParameters){
       digitalWrite(ADS1292_CS_PIN, HIGH);
       
       ecg_buffer[index] = convertir_mv(ecgData);
+        resp_buffer[index]=
       index++;
-
+    
       if(index >= BUFFER_SIZE){
         index = 0;
         bufferPle = true;
