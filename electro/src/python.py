@@ -9,6 +9,10 @@ ADDRESS = "EC:E3:34:7B:77:16"
 SERVICE_UUID = "00000180D-0000-1000-8000-00805F9B34FB"
 HRmesura_CHARACTERISTIC_UUID = "000002A8D-0000-1000-8000-00805F9B34FB"
 RESP_CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+#Variables gràfic
+fig = ax1 = ax2 = ax3 = None
+line_ecg = line_resp = None
+bar_sns = stress_text = None
 
 # Emmagatzemar les dades
 ecg_data = []
@@ -25,10 +29,11 @@ async def main():
         async with BleakClient(ADDRESS) as client:
             print("Connectat")
             GenerarGrafic()
-            while  True;
+            #Subscribim a les notificacions
+            await client.start_notify(HRmesura_CHARACTERISTIC_UUID, notification_handler)
+            await client.start_notify(RESP_CHARACTERISTIC_UUID, notification_handler)
+            while True:
                 if client.is_connected():
-                    await client.start_notify(HRmesura_CHARACTERISTIC_UUID, notification_handler)
-                    await client.start_notify(RESP_CHARACTERISTIC_UUID, notification_handler)
                     await asyncio.sleep(0.1);
                     print("Informació rebuda")
                 else:
@@ -83,7 +88,7 @@ def parse_data(data_str):#Separem per comes les dades
     return [], []
 
 def notification_handler(sender,data):
-    global ecg_data, resp_data, time_data, sns_val, pns_val, stress_val
+    global ecg_data, resp_data, time_data
     try:
         #Decodifiquem i extraiem valors
         decoded = data.decode("utf-8")
