@@ -6,7 +6,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from bleak import BleakClient, BleakError
 
 ADDRESS = "EC:E3:34:7B:77:16"
-SERVICE_UUID = "00000180D-0000-1000-8000-00805F9B34FB"
+SERVICE_UUID = "0000180D-0000-1000-8000-00805F9B34FB"
 HRmesura_CHARACTERISTIC_UUID = "000002A8D-0000-1000-8000-00805F9B34FB"
 RESP_CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 #Variables gràfic
@@ -23,26 +23,6 @@ pns_val = 0.0
 stress_val = 0.0
 BUFFER_SIZE = 1000 # 50 mostres per paquet , 20 paquets
 INTERVAL = 0.2 #250SPS 50 mostres=0,2s
-
-async def main():
-    try:
-        async with BleakClient(ADDRESS) as client:
-            print("Connectat")
-            GenerarGrafic()
-            #Subscribim a les notificacions
-            await client.start_notify(HRmesura_CHARACTERISTIC_UUID, notification_handler)
-            await client.start_notify(RESP_CHARACTERISTIC_UUID, notification_handler)
-            while True:
-                if client.is_connected():
-                    await asyncio.sleep(0.1);
-                    print("Informació rebuda")
-                else:
-                    print("Desconnectat")
-                    break
-    except BleakError as e:
-        print(f"Error rebuda: {e}")
-if __name__ == "__main__":
-    asyncio.run(main())
 
 def GenerarGrafic():
     #Inicialitzar gràfica
@@ -108,3 +88,25 @@ def notification_handler(sender,data):
 
     except Exception as e:
         print("Error en handler:", e)
+
+
+async def main():
+    try:
+        async with BleakClient(ADDRESS) as client:
+            print("Connectat")
+            GenerarGrafic()
+            #Subscribim a les notificacions
+            await client.start_notify(RESP_CHARACTERISTIC_UUID, notification_handler)
+            while True:
+                if client.is_connected():
+                    await asyncio.sleep(0.1);
+                    print("Informació rebuda")
+                else:
+                    print("Desconnectat")
+                    break
+    except BleakError as e:
+        print(f"Error rebuda: {e}")
+if __name__ == "__main__":
+    asyncio.run(main())
+
+
