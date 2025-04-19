@@ -190,13 +190,13 @@ void TaskBLEcode(void *pvParameters){
       bufferPle = false;
       String data="";
       for(int i=0; i<BUFFER_SIZE; i++){
-        data +=String(ecg_buffer[i], 2);
+        data +=String(ecg_buffer[i], 2) + ",";
       }
       for(int i=0; i<BUFFER_SIZE; i++){
-        data +=String(resp_buffer[i], 2);
+        data +=String(resp_buffer[i], 2) + ",";
       }
-      data += String(sns_val, 2);
-      data += String(pns_val, 2);
+      data += String(sns_val, 2) + ",";
+      data += String(pns_val, 2) + ",";
       data += String(stress_val, 2);  
 
       size_t len = data.length();
@@ -207,7 +207,7 @@ void TaskBLEcode(void *pvParameters){
       pCharacteristic->setValue(buf.data(), buf.size());
       pCharacteristic->notify();
         
-      delay(1000); 
+      delay(200); 
     }
   }
 }
@@ -294,7 +294,6 @@ void setup(){
 
 
   //interrupció ECG
-
   attachInterrupt(digitalPinToInterrupt(ADS1292_DRDY_PIN), DRDYinterrupt, FALLING);
   //Interrupció RR
   timerCalc = timerBegin(0, 80, true);
@@ -370,10 +369,5 @@ void loop(){
   delay(2000);
 }
 
-
-
-//Funcions
-
-//Comunicació amb SPI
 
 
