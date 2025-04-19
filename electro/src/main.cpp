@@ -31,8 +31,6 @@ float resp_buffer[BUFFER_SIZE];
 volatile bool novesDadesECG= false;
 volatile bool bufferPle=false;
 //Càlculs
-float sns_val = 0; 
-float pns_val = 0; 
 float stress_val = 0;
 unsigned long last_calc_time= 0;
 hw_timer_t * timerCalc = NULL;
@@ -132,7 +130,7 @@ TaskHandle_t TaskBLE;
 
 //interrupcions
 void IRAM_ATTR DRDYinterrupt();
-void IRAM_ATTR onTimer();
+void IRAM_ATTR onTime();
 
 void IRAM_ATTR onTime() {
   ferCalculs = true;
@@ -195,8 +193,8 @@ void TaskBLEcode(void *pvParameters){
       for(int i=0; i<BUFFER_SIZE; i++){
         data +=String(resp_buffer[i], 2) + ",";
       }
-      data += String(sns_val, 2) + ",";
-      data += String(pns_val, 2) + ",";
+      data += String(potenciaLF, 2) + ","; //simpàtic
+      data += String(potenciaHF, 2) + ","; //Parasimpàtic
       data += String(stress_val, 2);  
 
       size_t len = data.length();
@@ -232,7 +230,26 @@ void detectarPics() {
 
 
 void Task_calc_code(void *pvParameters){
-  
+#define N ?
+
+float potencies[N/2]; // Potència espectral
+float f[N/2]; // Freqüències corresponents
+
+  for (;;) {
+    if (ferCalculs) {
+      ferCalculs = false;
+
+      detectarPics();
+      //interpolar i FFT
+      for (int i = 0; i < N / 2; i++) {
+        if (f[i] >= 0.04 && f[i] <= 0.15)
+          potenciaLF += potencies[i];
+        else if (f[i] > 0.15 && f[i] <= 0.4)
+          potenciaHF += potencies[i];
+      }
+      stress_val= potenciaLF/potenciaHF;
+    }
+  }
 }
 
 
