@@ -26,16 +26,13 @@ stress_val = 0.0
 BUFFER_SIZE = 50 
 MOSTRES_GRAFIC = 1000 #Mostres màximes a mostrar al gràfic
 INTERVAL = 0.2 #250SPS 50 mostres=0,2s
-SPS = 250
-DT = 1.0 /SPS
-FS_INTERP = 4.0
-N =
 
 #Iterporlació i FFT
-FS_RR = 4.0 #4Hz
+FS_INTERP=4
+DT = 1.0 /FS_INTERP
 LF_BAND = (0.04, 0.15)
 HF_BAND = (0.15, 0.40)
-TRESHOLD = 0.5 #mV, llindar detecció de pics
+THRESHOLD = 0.5 #mV, llindar detecció de pics
 
 
 def generarGrafic():
@@ -63,7 +60,7 @@ def update_plot():
     ax2.set_xlim(max(0, time_data[-1] - 10), time_data[-1])
     plt.pause(0.1)
 
-def parse_data(data_str):#Separem per comes les dades
+def parse_data(data_str):
     try:
         parts= list(map(float,data_str.strip().split(",")))
         if len(parts) >= 100:
@@ -83,20 +80,19 @@ def detectar_pics():
         ant  = fragment_ecg[i-1]
         act  = fragment_ecg[i]
         seg  = fragment_ecg[i+1]
-        if act > TRESHOLD and act > ant and act > seg:
-            t = fragment_temps[i]
+        if act > THRESHOLD and act > ant and act > seg:
+            t = fragment_temps[i] #Només guardem el temps si la mostra és més gran que l'anterior i la seguent
             tempsPics.append(t)
             if len(tempsPics) >= 2:
                 rrIntervals.append(tempsPics[-1] - tempsPics[-2])
 
-def interpolar_rr(tempsPics, rrIntervals):
-    N = 
-    fs_rr = 4.0
-    dt = 1.0/fs_rr
-    t_interp = np.arange(N) *dt
+def interpolar_rr():
+    global tempsPics, rrIntervals
+    N = int((tempsPics[-1] - tempsPics[0]) * FS_INTERP)
+    t_interp = np.arange(N) *DT + tempsPics[0]
     rr_interp = np.zeros(N)
     j = 0
-    M = len(tempsPics)
+    M = len(tempsPics) #Numero de pics
     for i, t in enumerate(t_interp):
         # avanço l'índex j fins que t cau entre temps_pics[j] i temps_pics[j+1]
         while j < M-2 and tempsPics[j+1] < t:
@@ -113,14 +109,13 @@ def interpolar_rr(tempsPics, rrIntervals):
 
 def calcular_fft(rr_interp, DT):
     N = len(rr_interp)
-    # FFT directa de senyal real, agafa només bins de freqüències no negatius
+    # FFT directa de senyal real
     Y = np.fft.rfft(rr_interp) #rfft: real (FFT) et retorna només els N/2+1 bins corresponents a les freqüències positives
     # Potència espectral = quadrat del mòdul
     potencies = np.abs(Y)**2
     # Eix de freqüències positives
     freqs = np.fft.rfftfreq(N, DT)
     return potencies, freqs
-
 
 def calcular_valors(potencies, freqs):
     LF = potencies[(freqs>=LF_BAND[0]) & (freqs<=LF_BAND[1])].sum()

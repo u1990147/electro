@@ -30,8 +30,8 @@ float ecg_buffer[BUFFER_SIZE];
 float resp_buffer[BUFFER_SIZE];
 volatile bool novesDadesECG= false;
 volatile bool bufferPle=false;
-//Càlculs
 
+//Càlculs
 unsigned long last_calc_time= 0;
 hw_timer_t * timerCalc = NULL;
 
@@ -82,8 +82,7 @@ void reinicialitza_ads1292r() {
 void writeRegister(uint8_t reg, uint8_t value) {
   digitalWrite(ADS1292_CS_PIN, LOW); 
   delayMicroseconds(2); 
-  SPI.transfer(0x40 | reg); 
-  // 0x40→OPCODE per escriure 
+  SPI.transfer(0x40 | reg); // 0x40→OPCODE per escriure 
   SPI.transfer(0x00); 
   SPI.transfer(value); 
   delayMicroseconds(2); 
@@ -121,20 +120,22 @@ class MyServerCallbacks: public BLEServerCallbacks {
     }
 };
 
-//ECG i HRV en core 0, enviament dades per BLE core 1
+//Separem per cores
 TaskHandle_t TaskECG;
 TaskHandle_t Task_calc;
 TaskHandle_t TaskBLE;
 
 //interrupcions
 void IRAM_ATTR DRDYinterrupt();
-void IRAM_ATTR onTime();
-
+void IRAM_ATTR onTime(); 
+//Quan han passat 2 minuts fem els càlculs
 void IRAM_ATTR onTime() {
   ferCalculs = true;
 }
-
-
+//capturar dades ECG, avisa quan hi ha noves dades 
+void IRAM_ATTR DRDYinterrupt(){
+  novesDadesECG= true;
+}
 //convertir a mv
 float convertir_mv(long rawData){
   const float vRef= 2.42;
@@ -144,10 +145,7 @@ float convertir_mv(long rawData){
   return voltage * 1000.0; // en mV 
 }
 
-//capturar dades ECG i càlcul HRV
-void IRAM_ATTR DRDYinterrupt(){
-  novesDadesECG= true;
-}
+
 void TaskECGcode(void *pvParameters){
   static int index = 0; 
   while(true){
@@ -196,76 +194,14 @@ void TaskBLEcode(void *pvParameters){
       std::vector<uint8_t> buf(len);
       memcpy(buf.data(), data.c_str(), len);
 
-      // 3) I ara enviem aquest buffer
       pCharacteristic->setValue(buf.data(), buf.size());
       pCharacteristic->notify();
         
       delay(200); 
     }
-  }
-}
+    if (ferCalculs && deviceConnected) {
+      //Enviem per bluetooth que ja podem fer els càlculs(cada 2 min)
 
-
-
-void detectarPics() {
-  for (int i = 0; i < BUFFER_SIZE - 1; i++) {
-    // local màxim, per sobre llindar 
-    if (ecg_buffer[i] > threshold
-        && ecg_buffer[i] > ecg_buffer[i-1]
-        && ecg_buffer[i] > ecg_buffer[i+1]){
-      float t = i * Ts;  // temps en segons
-      tempsPics[countPics++] = t;
-
-      
-        float penultimT = tempsPics[countPics-1];
-        rrIntervals[rrCount++] = t - penultimT;
-      }
-    }
-}
-void interpolarRR(){
-  if (rrCount < 2) return;
-  float dt = 1.0 / 4.0;
-  int j = 0;
-  for (int i = 0; i < N; i++){
-    float t = i * dt;
-    rr_times[i] = t
-    while (j < rrCount - 1 && tempsPics[j+1] < t){
-      j++;
-    }
-    if (j >= rr Count - 1) break;
-    float x0 = tempsPics[j];
-    float x1 = tempsPics[j+1];
-    float y0 = rrIntervals[j];
-    float y1 = rrIntervals[j+1];  
-  rr_interp[i] = y0 + (y1 - y0) * (t - x0) / (x1 - x0); 
-  }  
-}
-
-void calcularFFT(){
-  
-}
-
-
-void Task_calc_code(void *pvParameters){
-#define N ?
-
-float potencies[N/2]; // Potència espectral
-float f[N/2]; // Freqüències corresponents 
-
-  for (;;) {
-    if (ferCalculs) {
-      ferCalculs = false;
-      detectarPics();
-      interpolarRR();
-      calcularFFT();
-      //interpolar i FFT
-      for (int i = 0; i < N / 2; i++) {
-        if (f[i] >= 0.04 && f[i] <= 0.15)
-          potenciaLF += potencies[i];
-        else if (f[i] > 0.15 && f[i] <= 0.4)
-          potenciaHF += potencies[i];
-      }
-      stress_val= potenciaLF/potenciaHF;
     }
   }
 }
@@ -325,15 +261,13 @@ void setup(){
   delayMicroseconds(2); 
   digitalWrite(ADS1292_CS_PIN, HIGH);
   Serial.println("ADS1292R Iniciat");
-  
-
 
   //interrupció ECG
   attachInterrupt(digitalPinToInterrupt(ADS1292_DRDY_PIN), DRDYinterrupt, FALLING);
   //Interrupció RR
   timerCalc = timerBegin(0, 80, true);
   timerAttachInterrupt(timerCalc, &onTime, true);
-  timerAlarmWrite(timerCalc, 900000000, true);
+  timerAlarmWrite(timerCalc, 120000000, true); //2 minuts en microssegons
   timerAlarmEnable(timerCalc);
   //Core 0
   xTaskCreatePinnedToCore(
@@ -345,7 +279,6 @@ void setup(){
     nullptr,//nullptrTasca associada.
     0 //Core 0
   );
-  delay(100);
 
   //Core 1
   xTaskCreatePinnedToCore(
@@ -357,18 +290,7 @@ void setup(){
     nullptr,
     1 //Core 1
   );
-  delay(100);
-
-  xTaskCreatePinnedToCore(
-    Task_calc_code,
-    "Task_calc",
-    4096,
-    nullptr,
-    1,
-    nullptr,
-    1
-  );
-  delay(100);
+  
 }
 
 void loop(){
