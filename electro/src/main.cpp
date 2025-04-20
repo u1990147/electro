@@ -30,6 +30,7 @@ float ecg_buffer[BUFFER_SIZE];
 float resp_buffer[BUFFER_SIZE];
 volatile bool novesDadesECG= false;
 volatile bool bufferPle=false;
+volatile bool ferCalculs = false;
 
 //Càlculs
 unsigned long last_calc_time= 0;
@@ -122,7 +123,6 @@ class MyServerCallbacks: public BLEServerCallbacks {
 
 //Separem per cores
 TaskHandle_t TaskECG;
-TaskHandle_t Task_calc;
 TaskHandle_t TaskBLE;
 
 //interrupcions
@@ -200,8 +200,11 @@ void TaskBLEcode(void *pvParameters){
       delay(200); 
     }
     if (ferCalculs && deviceConnected) {
+      ferCalculs = false;
+      const char* tag = "CALCULA";
+      pCharacteristic->setValue((uint8_t*)msg, strlen(msg));
+      pCharacteristic->notify();
       //Enviem per bluetooth que ja podem fer els càlculs(cada 2 min)
-
     }
   }
 }
