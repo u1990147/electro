@@ -31,12 +31,10 @@ float resp_buffer[BUFFER_SIZE];
 volatile bool novesDadesECG= false;
 volatile bool bufferPle=false;
 //Càlculs
-float stress_val = 0;
+
 unsigned long last_calc_time= 0;
 hw_timer_t * timerCalc = NULL;
-volatile bool ferCalculs = false;
-float potenciaLF=0;
-float potenciaHF=0;
+
 float tempsPics[BUFFER_SIZE];
 float rrIntervals[BUFFER_SIZE];
 int countPics = 0;
@@ -51,7 +49,7 @@ float threshold = 0.5; //llindar per detectar pics
 void writeCommand(uint8_t cmd) { 
   digitalWrite(ADS1292_CS_PIN, LOW); //Selecciona xip
   delayMicroseconds(2); 
-  SPI.transfer(cmd); 
+  SPI.transfer(); 
   delayMicroseconds(2); 
   digitalWrite(ADS1292_CS_PIN, HIGH); //Deselecciona
   delay(1);
@@ -192,10 +190,7 @@ void TaskBLEcode(void *pvParameters){
       }
       for(int i=0; i<BUFFER_SIZE; i++){
         data +=String(resp_buffer[i], 2) + ",";
-      }
-      data += String(potenciaLF, 2) + ","; //simpàtic
-      data += String(potenciaHF, 2) + ","; //Parasimpàtic
-      data += String(stress_val, 2);  
+      } 
 
       size_t len = data.length();
       std::vector<uint8_t> buf(len);
@@ -227,19 +222,42 @@ void detectarPics() {
       }
     }
 }
+void interpolarRR(){
+  if (rrCount < 2) return;
+  float dt = 1.0 / 4.0;
+  int j = 0;
+  for (int i = 0; i < N; i++){
+    float t = i * dt;
+    rr_times[i] = t
+    while (j < rrCount - 1 && tempsPics[j+1] < t){
+      j++;
+    }
+    if (j >= rr Count - 1) break;
+    float x0 = tempsPics[j];
+    float x1 = tempsPics[j+1];
+    float y0 = rrIntervals[j];
+    float y1 = rrIntervals[j+1];  
+  rr_interp[i] = y0 + (y1 - y0) * (t - x0) / (x1 - x0); 
+  }  
+}
+
+void calcularFFT(){
+  
+}
 
 
 void Task_calc_code(void *pvParameters){
 #define N ?
 
 float potencies[N/2]; // Potència espectral
-float f[N/2]; // Freqüències corresponents
+float f[N/2]; // Freqüències corresponents 
 
   for (;;) {
     if (ferCalculs) {
       ferCalculs = false;
-
       detectarPics();
+      interpolarRR();
+      calcularFFT();
       //interpolar i FFT
       for (int i = 0; i < N / 2; i++) {
         if (f[i] >= 0.04 && f[i] <= 0.15)
