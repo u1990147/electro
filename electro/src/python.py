@@ -124,9 +124,29 @@ def calcular_valors(potencies, freqs):
 
 def notification_handler(sender,data):
     global ecg_data, resp_data, time_data
+    global tempsPics, rrIntervals
+    
     try:
         #Decodifiquem i extraiem valors
-        decoded = data.decode("utf-8")
+        decoded = data.decode("utf-8").strip()
+        #Si és la comanda de càlcul, fem interpolació→FFT→LF/HF/Estrès
+        if decoded == "Calcula":
+         if len(tempsPics) >= 2:
+            # 1. interpolar la sèrie RR
+            t_rr, rr_interp = interpolar_rr()
+            # 2. FFT i potències
+            potencies, freqs = calcular_fft(rr_interp, DT)
+            LF, HF, estres = calcular_valors(potencies, freqs)
+            # 3. actualitzar gràfica
+            bar_sns[0].set_height(LF)
+            bar_sns[1].set_height(HF)
+            stress_text.set_text(f"Estrès: {estres:.2f}")
+            update_plot()
+            # 4. netegem per al següent període de 2 min
+            tempsPics.clear()
+            rrIntervals.clear()
+         return
+        #En cas contrari és el paquet de dades
         ecg_vals, resp_vals = parse_data(decoded)
         #Si tenim dades, les afegim a les llistes globals i actualitzem el temps
         if ecg_vals and resp_vals:
