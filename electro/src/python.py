@@ -39,6 +39,7 @@ def generarGrafic():
     ax1.set_ylim(-1.5, 1.5)
     ax2.set_ylim(2.0, 4.0)
     ax3.set_ylim(0, 10)
+    plt.show()
 
 def update_plot():
     global line_ecg, line_resp, bar_sns, stress_text

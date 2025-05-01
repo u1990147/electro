@@ -11,7 +11,7 @@
 #define CMD_STOP 0x0A
 #define CMD_SDATAC 0x11 // Sortir lectura continua
 #define CMD_RESET 0x06
-#define CMD_RDATA 0x12 // llegir dades
+#define CMD_RDATAC 0x10 // llegir dades mode continu
 
 // Pins SPI
 #define ADS1292_SCLK 18
@@ -28,22 +28,23 @@ typedef std::string String;
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
 // Tamany buffers
-define BUFFER_SIZE 50
-#define ECG_BUF_SZ BUFFER_SIZE
+#define BUFFER_SIZE 50
 
 // FFT i interpolació
-#define N 256  // punts per interpolar i FFT
-arduinoFFT<double> FFT;
+#define N 512  // punts per interpolar i FFT
+#define FS 4
+
 double vReal[N];
 double vImag[N];
 float potencies[N/2];  // Potència espectral
 double f[N/2];       // Freqüències corresponents
 
 // Captura dades
-float ecg_buffer[ECG_BUF_SZ];
-float resp_buffer[ECG_BUF_SZ];
+float ecg_buffer[BUFFER_SIZE];
+float resp_buffer[BUFFER_SIZE];
 volatile bool novesDadesECG = false;
 volatile bool bufferPle = false;
+
 
 // HRV i càlculs
 float tempsPics[BUFFER_SIZE];
@@ -116,7 +117,6 @@ void writeRegister(uint8_t reg, uint8_t value) {
 }
 
 // BLE
-enum { ECG_CHAR_SZ = BUFFER_SIZE };
 BLEServer* pServer;
 BLECharacteristic* pCharacteristic;
 bool deviceConnected = false;
@@ -134,49 +134,51 @@ TaskHandle_t TaskECG, TaskBLE, TaskCalc;
 void IRAM_ATTR DRDYinterrupt() { novesDadesECG = true; }
 
 // Task ECG: llegeix per SPI
-void TaskECGcode(void* pv) {
+void TaskECGcode(void* pvParameters) {
   int idx = 0;
   while (true) {
     if (novesDadesECG) {
       novesDadesECG = false;
       digitalWrite(ADS1292_CS_PIN, LOW);
-      SPI.transfer(CMD_RDATA);
-      uint32_t ecg = SPI.transfer(0x00) << 16;
-      ecg |= SPI.transfer(0x00) << 8;
-      ecg |= SPI.transfer(0x00);
       uint32_t rsp = SPI.transfer(0x00) << 16;
       rsp |= SPI.transfer(0x00) << 8;
       rsp |= SPI.transfer(0x00);
+      uint32_t ecg = SPI.transfer(0x00) << 16;
+      ecg |= SPI.transfer(0x00) << 8;
+      ecg |= SPI.transfer(0x00);
       digitalWrite(ADS1292_CS_PIN, HIGH);
       ecg_buffer[idx] = convertir_mv(ecg);
       resp_buffer[idx] = convertir_mv(rsp);
-      idx = (idx + 1) % ECG_BUF_SZ;
-      if (idx == 0) bufferPle = true;
+      idx++;
+      if (idx>= BUFFER_SIZE){ 
+        idx=0;
+        bufferPle= true;
+      }
     }
   }
 }
 
 // Task BLE: envia valors i estrès
-void TaskBLEcode(void* pv) {
+void TaskBLEcode(void* pvParameters) {
   while (true) {
     if (bufferPle && deviceConnected) {
       bufferPle = false;
-      std::string s;
-      for (int i=0;i<ECG_BUF_SZ;i++) s += String(ecg_buffer[i],2) + ",";
-      for (int i=0;i<ECG_BUF_SZ;i++) s += String(resp_buffer[i],2) + ",";
-      s += String(potenciaLF,2) + "," + String(potenciaHF,2) + "," + String(stress_val,2);
-      pCharacteristic->setValue((uint8_t*)s.c_str(), s.length());
+      std::string data;
+      for (int i=0;i<BUFFER_SIZE;i++) data += String(ecg_buffer[i],2) + ",";
+      for (int i=0;i<BUFFER_SIZE;i++) data += String(resp_buffer[i],2) + ",";
+      data += String(potenciaLF,2) + "," + String(potenciaHF,2) + "," + String(stress_val,2);
+      pCharacteristic->setValue((uint8_t*)data.c_str(), data.length());
       pCharacteristic->notify();
-      delay(200);
+      delay(200); //200ms
     }
   }
 }
 
 // Detecta pics R
 void detectarPics() {
-  for (int i=1;i<ECG_BUF_SZ-1;i++) {
+  for (int i=1;i<BUFFER_SIZE -1;i++) {
     if (ecg_buffer[i]>0.5 && ecg_buffer[i]>ecg_buffer[i-1] && ecg_buffer[i]>ecg_buffer[i+1]) {
-      if (countPics < BUFFER_SIZE) tempsPics[countPics++] = i * (1.0/Fs);
+      if (countPics < BUFFER_SIZE) tempsPics[countPics++] = i * (1.0/25O); //temps de la mostra on es troba el pic
       if (countPics>=2 && rrCount<BUFFER_SIZE) rrIntervals[rrCount++] = tempsPics[countPics-1] - tempsPics[countPics-2];
     }
   }
@@ -185,10 +187,9 @@ void detectarPics() {
 // Interpolació a 4Hz
 void interpolarRR() {
   if (rrCount<2) return;
-  float dt = 1.0/4.0;
+  float dt = 1.0/FS;
   int j=0;
   for (int i=0;i<N/2;i++) {
-    f[i] = i * dt;
     float t = i * dt;
     while (j<rrCount-1 && tempsPics[j+1]<t) j++;
     float x0=tempsPics[j], x1=tempsPics[j+1];
@@ -196,19 +197,22 @@ void interpolarRR() {
     vReal[i] = y0 + (y1-y0)*(t-x0)/(x1-x0);
     vImag[i] = 0.0;
   }
+  for (int i=0;i<N/2;i++) {
+    f[i] = (FS * i) / (N/2); 
+  }
 }
 
 // Càlcul FFT i magnituds
-void calcularFFT() {
+ArduinoFFT<double> calcularFFT() {
   FFT.Windowing(vReal, N/2, FFT_WIN_TYP_HAMMING, FFT_FORWARD);
-  FFT.Compute(vReal, vImag, N/2, FFT_FORWARD);
-  FFT.ComplexToMagnitude(vReal, vImag, N/2);
-  for (int i=0;i<N/2;i++) potencies[i] = vReal[i];
+  FFT.Compute(vReal, vImag, N/2, FFT_FORWARD); //FFT
+  FFT.ComplexToMagnitude(vReal, vImag, N/2); //magnitud
+  for (int i=0;i<N/2;i++) potencies[i] = vReal[i]; 
 }
 
 // Suma potències LF/HF
 void calcularPotencies() {
-  potenciaLF=0; potenciaHF=0;
+  potenciaLF= potenciaHF=0;
   for (int i=0;i<N/2;i++) {
     double freq = f[i];
     if (freq>=0.04 && freq<=0.15) potenciaLF += potencies[i];
@@ -218,8 +222,12 @@ void calcularPotencies() {
 }
 
 // Task càlculs HRV
-void TaskCalcCode(void* pv) {
+void TaskCalcCode(void* pv) { 
   while (true) {
+    detectarPics();
+    interpolarRR();
+    calcularFFT();
+    delay(10000); //actualitzant FFT i HRV cada 10s
     if (ferCalculs) {
       ferCalculs = false;
       detectarPics();
@@ -234,41 +242,61 @@ void setup() {
   Serial.begin(115200);
 
   // Inici BLE
-  BLEDevice::init("ESP32-ECG");
+  BLEDevice::init("Lola_Marc");
   pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
-  BLEService* svc = pServer->createService(SERVICE_UUID);
+  BLEService *svc = pServer->createService(SERVICE_UUID);
   pCharacteristic = svc->createCharacteristic(CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
   pCharacteristic->addDescriptor(new BLE2902());
   svc->start();
   BLEDevice::startAdvertising();
+  Serial.println("BLE iniciat i en publicació");
+  //Registre ID
+  uint8_t id;
+  do{
+  id = readRegister(0x00);
+  Serial.pintln("Registre ID (0x00)= 0x"));
+  Serial.printIn(id,HEX);
+  if (id == 0x73) break;
+  reinicialitza_ads1292r();
+  delay(100);
+  } while(id!= 0x73);
 
   // SPI i ADS1292R
   SPI.begin(ADS1292_SCLK, ADS1292_MISO, ADS1292_MOSI, ADS1292_CS_PIN);
   SPI.setBitOrder(MSBFIRST);
   SPI.setDataMode(SPI_MODE1);
-  SPI.setClockDivider(SPI_CLOCK_DIV16);
-  pinMode(ADS1292_CS_PIN, OUTPUT); digitalWrite(ADS1292_CS_PIN, HIGH);
-  pinMode(ADS1292_DRDY_PIN, INPUT_PULLDOWN);
+  SPI.setClockDivider(SPI_CLOCK_DIV16); //1MHz
+  pinMode(ADS1292_CS_PIN, OUTPUT); 
+  pinMode(ADS1292_DRDY_PIN, INPUT);
   pinMode(ADS1292_START_PIN, OUTPUT);
   pinMode(ADS1292_PWDN_PIN, OUTPUT);
+  digitalWrite(ADS1292_CS_PIN, HIGH); // xip no seleccionat
   reinicialitza_ads1292r();
-  writeRegister(0x01, 0x01); writeRegister(0x02, 0xE0);
-  writeRegister(0x03, 0x19); writeRegister(0x04, 0x50);
-  writeRegister(0x05, 0x00); writeRegister(0x06, 0x3F);
-  writeRegister(0x07, 0x2C); writeRegister(0x09, 0xC2);
-  writeRegister(0x0A, 0x05); writeRegister(0x0B, 0x00);
+  digitalWrite(ADS1292_CS_PIN, LOW);
+  writeRegister(0x01, 0x01); 
+  writeRegister(0x02, 0xE0);
+  writeRegister(0x03, 0x19); 
+  writeRegister(0x04, 0x00);
+  writeRegister(0x05, 0x00); 
+  writeRegister(0x06, 0x3F);
+  writeRegister(0x07, 0x2C); 
+  writeRegister(0x09, 0xC2);
+  writeRegister(0x0A, 0x05); 
+  writeRegister(0x0B, 0x00);
+  writeCommand(CMD_RDATAC);
+  digitalWrite(ADS1292_CS_PIN, HIGH);
 
   attachInterrupt(digitalPinToInterrupt(ADS1292_DRDY_PIN), DRDYinterrupt, FALLING);
   timerCalc = timerBegin(0, 80, true);
   timerAttachInterrupt(timerCalc, &onTime, true);
-  timerAlarmWrite(timerCalc, 900000000, true);
+  timerAlarmWrite(timerCalc, 120000000, true);
   timerAlarmEnable(timerCalc);
 
   // Crear tasques
-  xTaskCreatePinnedToCore(TaskECGcode, "ECG", 4096, NULL, 1, &TaskECG, 0);
-  xTaskCreatePinnedToCore(TaskBLEcode, "BLE", 4096, NULL, 1, &TaskBLE, 1);
-  xTaskCreatePinnedToCore(TaskCalcCode, "Calc", 4096, NULL, 1, &TaskCalc, 1);
+  xTaskCreatePinnedToCore(TaskECGcode, "TaskECG", 4096, NULL, 1, NULL, 0);
+  xTaskCreatePinnedToCore(TaskBLEcode, "TaskBLE", 4096, NULL, 1, NULL, 1);
+  xTaskCreatePinnedToCore(TaskCalcCode, "TaskCalc", 4096, NULL, 0, NULL, 1);
 }
 
 void loop() {
@@ -278,14 +306,5 @@ void loop() {
     oldDeviceConnected = deviceConnected;
   }
   if (deviceConnected && !oldDeviceConnected) oldDeviceConnected = deviceConnected;
-
-  // Comprovació ID ADS1292R
-  uint8_t id; int tries=0;
-  do {
-    id = readRegister(0x00);
-    if (id == 0x73) break;
-    tries++; reinicialitza_ads1292r(); delay(100);
-  } while (tries < 3);
-  Serial.println(id==0x73?"ID OK":"ID ERROR");
   delay(2000);
 }
